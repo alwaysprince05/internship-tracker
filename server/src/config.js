@@ -13,5 +13,7 @@ export const config = {
   accessTtl: '15m',
   refreshTtlDays: 7,
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  // Used for the default applied_on date; Postgres CURRENT_DATE would be UTC.
+  timezone: process.env.APP_TIMEZONE || 'Asia/Kolkata',
   isProd: process.env.NODE_ENV === 'production',
 };

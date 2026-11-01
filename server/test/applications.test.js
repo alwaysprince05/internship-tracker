@@ -42,6 +42,13 @@ test('users cannot see, edit or delete each other\'s applications', async () => 
   expect(still.body[0].status).toBe('applied');
 });
 
+test('default applied_on uses the app timezone, not UTC', async () => {
+  const { token } = await registerUser();
+  const res = await request(app).post('/api/applications').set(auth(token)).send({ company: 'Acme', role: 'Intern' });
+  const expected = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  expect(res.body.applied_on).toBe(expected);
+});
+
 test('validates input', async () => {
   const { token } = await registerUser();
   const cases = [

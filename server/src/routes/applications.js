@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../db.js';
+import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 
@@ -47,8 +48,8 @@ router.post('/', validate(createSchema), async (req, res) => {
   const { company, role, status, applied_on, link, notes } = req.body;
   const { rows } = await pool.query(
     `INSERT INTO applications (user_id, company, role, status, applied_on, link, notes)
-     VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7) RETURNING ${COLUMNS}`,
-    [req.userId, company, role, status, applied_on ?? null, link ?? null, notes ?? null],
+     VALUES ($1, $2, $3, $4, COALESCE($5::date, (now() AT TIME ZONE $8)::date), $6, $7) RETURNING ${COLUMNS}`,
+    [req.userId, company, role, status, applied_on ?? null, link ?? null, notes ?? null, config.timezone],
   );
   res.status(201).json(rows[0]);
 });
