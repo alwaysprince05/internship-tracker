@@ -40,7 +40,8 @@ async function issueRefresh(res, userId) {
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: config.isProd,
-    sameSite: config.isProd ? 'none' : 'lax',
+    // The client is served from the same site as the API, so the cookie never needs to go cross-site.
+    sameSite: 'strict',
     path: '/api/auth',
     expires,
   });

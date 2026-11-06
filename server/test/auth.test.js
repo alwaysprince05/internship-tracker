@@ -11,6 +11,8 @@ describe('register', () => {
     expect(res.body.user.email).toBe('new@example.com');
     expect(res.body.accessToken).toBeTruthy();
     expect(res.headers['set-cookie'][0]).toMatch(/refresh_token=.*HttpOnly/);
+    expect(res.headers['set-cookie'][0]).toMatch(/SameSite=Strict/);
+    expect(res.headers['set-cookie'][0]).toMatch(/Path=\/api\/auth/);
   });
 
   test('stores a bcrypt hash, not the password', async () => {

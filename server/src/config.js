@@ -16,4 +16,5 @@ export const config = {
   // Used for the default applied_on date; Postgres CURRENT_DATE would be UTC.
   timezone: process.env.APP_TIMEZONE || 'Asia/Kolkata',
   isProd: process.env.NODE_ENV === 'production',
+  staticDir: process.env.STATIC_DIR || null,
 };
