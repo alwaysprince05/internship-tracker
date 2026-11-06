@@ -34,7 +34,7 @@ function signAccess(userId) {
 async function issueRefresh(res, userId) {
   const token = crypto.randomBytes(48).toString('base64url');
   const expires = new Date(Date.now() + config.refreshTtlDays * 24 * 60 * 60 * 1000);
-  // Tokens that expired without being used would otherwise stay in the table forever.
+  // Expired tokens (used or not) would otherwise stay in the table forever.
   await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1 AND expires_at < now()', [userId]);
   await pool.query('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)', [userId, sha256(token), expires]);
   res.cookie(REFRESH_COOKIE, token, {
@@ -79,13 +79,34 @@ router.post('/refresh', async (req, res) => {
   if (!token) {
     return res.status(401).json({ error: 'no refresh token' });
   }
-  // Rotate: the old token is deleted whether or not it is still valid.
-  const { rows } = await pool.query('DELETE FROM refresh_tokens WHERE token_hash = $1 RETURNING user_id, expires_at', [sha256(token)]);
-  if (!rows[0] || rows[0].expires_at < new Date()) {
-    res.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
-    return res.status(401).json({ error: 'refresh token invalid or expired' });
+  const hash = sha256(token);
+  // Rotate: mark the token as used. Only one request can win this UPDATE.
+  const rotated = await pool.query(
+    'UPDATE refresh_tokens SET rotated_at = now() WHERE token_hash = $1 AND rotated_at IS NULL AND expires_at > now() RETURNING user_id',
+    [hash],
+  );
+  let userId = rotated.rows[0]?.user_id;
+
+  if (!userId) {
+    const { rows } = await pool.query(
+      `SELECT user_id, expires_at > now() AS live, rotated_at > now() - make_interval(secs => $2) AS in_grace
+       FROM refresh_tokens WHERE token_hash = $1`,
+      [hash, config.refreshReuseGraceSeconds],
+    );
+    const old = rows[0];
+    if (old?.live && old.in_grace) {
+      // Rotated a moment ago by a parallel request (another tab, a double reload): not an attack.
+      userId = old.user_id;
+    } else {
+      if (old?.live) {
+        // Used again long after rotation: someone else may have a copy. End every session of this user.
+        await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [old.user_id]);
+      }
+      res.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
+      return res.status(401).json({ error: 'refresh token invalid or expired' });
+    }
   }
-  const userId = rows[0].user_id;
+
   const user = await pool.query('SELECT id, email FROM users WHERE id = $1', [userId]);
   await issueRefresh(res, userId);
   res.json({ user: user.rows[0], accessToken: signAccess(userId) });

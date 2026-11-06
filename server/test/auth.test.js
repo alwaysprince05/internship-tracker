@@ -83,11 +83,43 @@ describe('refresh and logout', () => {
     expect(res.headers['set-cookie'][0]).not.toBe(cookie[0]);
   });
 
-  test('an old refresh token cannot be reused after rotation', async () => {
+  test('two requests refreshing with the same token at once both succeed', async () => {
+    // Two tabs, or a quick double reload: neither may log the user out.
     const { cookie } = await registerUser();
-    await request(app).post('/api/auth/refresh').set('Cookie', cookie);
+    const [a, b] = await Promise.all([
+      request(app).post('/api/auth/refresh').set('Cookie', cookie),
+      request(app).post('/api/auth/refresh').set('Cookie', cookie),
+    ]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    for (const res of [a, b]) {
+      const next = await request(app).post('/api/auth/refresh').set('Cookie', res.headers['set-cookie']);
+      expect(next.status).toBe(200);
+    }
+  });
+
+  test('reusing a rotated token after the grace period logs out every session', async () => {
+    const { cookie, user } = await registerUser();
+    const first = await request(app).post('/api/auth/refresh').set('Cookie', cookie);
+    expect(first.status).toBe(200);
+    await pool.query("UPDATE refresh_tokens SET rotated_at = now() - interval '1 hour' WHERE rotated_at IS NOT NULL");
+
     const reuse = await request(app).post('/api/auth/refresh').set('Cookie', cookie);
     expect(reuse.status).toBe(401);
+    expect(reuse.headers['set-cookie'][0]).toMatch(/refresh_token=;/);
+    // The legitimate newer token is revoked too, since we can't tell who is who.
+    const newer = await request(app).post('/api/auth/refresh').set('Cookie', first.headers['set-cookie']);
+    expect(newer.status).toBe(401);
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM refresh_tokens WHERE user_id = $1', [user.id]);
+    expect(rows[0].n).toBe(0);
+  });
+
+  test('an unknown or expired refresh token is rejected', async () => {
+    const unknown = await request(app).post('/api/auth/refresh').set('Cookie', 'refresh_token=nope');
+    expect(unknown.status).toBe(401);
+    const { cookie } = await registerUser();
+    await pool.query("UPDATE refresh_tokens SET expires_at = now() - interval '1 minute'");
+    const expired = await request(app).post('/api/auth/refresh').set('Cookie', cookie);
+    expect(expired.status).toBe(401);
   });
 
   test('login deletes the user\'s expired refresh tokens', async () => {
