@@ -4,6 +4,8 @@
 
 A small full-stack app for tracking internship applications: where you applied, what stage each one is at, and how many are in each stage.
 
+**Live:** https://internship-tracker-po57.onrender.com (free hosting, so the first load after a quiet period can take up to a minute while the server wakes up)
+
 **Stack:** React (Vite) · Node.js + Express · PostgreSQL · JWT auth · Jest + Supertest · Vitest + Testing Library · Docker · GitHub Actions
 
 ## Features
