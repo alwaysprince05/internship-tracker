@@ -42,6 +42,12 @@ test('unknown API routes still get a JSON 404, not the app', async () => {
   expect(res.body).toEqual({ error: 'not found' });
 });
 
+test('a relative static dir works too', async () => {
+  const res = await request(createApp({ staticDir: path.relative(process.cwd(), dir) })).get('/login');
+  expect(res.status).toBe(200);
+  expect(res.text).toContain('<title>Internship Tracker</title>');
+});
+
 test('without a static dir only the API is served', async () => {
   const res = await request(createApp({ staticDir: null })).get('/login');
   expect(res.status).toBe(404);

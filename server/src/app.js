@@ -12,6 +12,8 @@ import applicationRoutes from './routes/applications.js';
 // that block third-party cookies don't log the user out on reload.
 export function createApp({ staticDir = config.staticDir } = {}) {
   const app = express();
+  // sendFile needs an absolute path; STATIC_DIR may be given relative to the working directory.
+  if (staticDir) staticDir = path.resolve(staticDir);
   app.set('trust proxy', 1);
   app.use(helmet());
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
