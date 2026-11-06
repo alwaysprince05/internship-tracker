@@ -4,6 +4,11 @@ import { config } from './config.js';
 
 export const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
+// An idle connection can be closed by the database (managed Postgres suspends
+// when idle). Without a listener that error would crash the process; the pool
+// drops the client and opens a new one on the next query.
+pool.on('error', (err) => console.error('idle database client error:', err.message));
+
 const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url);
 
 // Runs every migrations/NNN_*.sql file that hasn't been applied yet, in order,
