@@ -88,6 +88,15 @@ describe('refresh and logout', () => {
     expect(reuse.status).toBe(401);
   });
 
+  test('login deletes the user\'s expired refresh tokens', async () => {
+    const { user } = await registerUser();
+    await pool.query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, 'old', now() - interval '1 day')", [user.id]);
+    await request(app).post('/api/auth/login').send({ email: 'a@example.com', password: 'password123' });
+    const { rows } = await pool.query('SELECT token_hash FROM refresh_tokens WHERE user_id = $1', [user.id]);
+    expect(rows.map((r) => r.token_hash)).not.toContain('old');
+    expect(rows).toHaveLength(2);
+  });
+
   test('logout revokes the refresh token', async () => {
     const { cookie } = await registerUser();
     const out = await request(app).post('/api/auth/logout').set('Cookie', cookie);

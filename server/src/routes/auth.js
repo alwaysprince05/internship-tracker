@@ -34,6 +34,8 @@ function signAccess(userId) {
 async function issueRefresh(res, userId) {
   const token = crypto.randomBytes(48).toString('base64url');
   const expires = new Date(Date.now() + config.refreshTtlDays * 24 * 60 * 60 * 1000);
+  // Tokens that expired without being used would otherwise stay in the table forever.
+  await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1 AND expires_at < now()', [userId]);
   await pool.query('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)', [userId, sha256(token), expires]);
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
