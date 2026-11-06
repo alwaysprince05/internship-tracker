@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from './api.js';
-import { useAuth } from './AuthContext.jsx';
+import { useAuth } from './auth-context.js';
 import ApplicationForm from './ApplicationForm.jsx';
 import { STATUSES, label } from './constants.js';
 
@@ -11,36 +11,46 @@ export default function Dashboard() {
   const [filter, setFilter] = useState('');
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
+  // Bumped after every change so the list and counts are fetched again.
+  const [version, setVersion] = useState(0);
+  const reload = () => setVersion((v) => v + 1);
 
-  const load = useCallback(async () => {
-    try {
-      const query = filter ? `?status=${filter}` : '';
-      const [list, s] = await Promise.all([api(`/api/applications${query}`), api('/api/applications/stats')]);
-      setApps(list);
-      setStats(s);
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [filter]);
-
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    // If the filter changes while a request is in flight, the older response
+    // must not overwrite the newer one.
+    let stale = false;
+    const query = filter ? `?status=${filter}` : '';
+    Promise.all([api(`/api/applications${query}`), api('/api/applications/stats')])
+      .then(([list, s]) => {
+        if (stale) return;
+        setApps(list);
+        setStats(s);
+        setError('');
+      })
+      .catch((err) => { if (!stale) setError(err.message); });
+    return () => { stale = true; };
+  }, [filter, version]);
 
   async function create(data) {
     await api('/api/applications', { method: 'POST', body: data });
-    load();
+    reload();
   }
 
   async function update(id, data) {
     await api(`/api/applications/${id}`, { method: 'PATCH', body: data });
     setEditing(null);
-    load();
+    reload();
   }
 
   async function remove(app) {
     if (!confirm(`Delete ${app.company} – ${app.role}?`)) return;
-    await api(`/api/applications/${app.id}`, { method: 'DELETE' });
-    load();
+    try {
+      await api(`/api/applications/${app.id}`, { method: 'DELETE' });
+    } catch (err) {
+      setError(`Could not delete: ${err.message}`);
+      return;
+    }
+    reload();
   }
 
   const total = Object.values(stats).reduce((a, b) => a + b, 0);
