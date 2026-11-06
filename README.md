@@ -1,5 +1,7 @@
 # Internship Tracker
 
+[![CI](https://github.com/alwaysprince05/internship-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/alwaysprince05/internship-tracker/actions/workflows/ci.yml)
+
 A small full-stack app for tracking internship applications: where you applied, what stage each one is at, and how many are in each stage.
 
 **Stack:** React (Vite) · Node.js + Express · PostgreSQL · JWT auth · Jest + Supertest · Vitest + Testing Library · Docker · GitHub Actions
