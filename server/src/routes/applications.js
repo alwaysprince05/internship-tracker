@@ -10,11 +10,23 @@ router.use(requireAuth);
 
 export const STATUSES = ['wishlist', 'applied', 'oa', 'interview', 'offer', 'rejected', 'ghosted'];
 
+// The regex alone lets through dates like 2026-02-30 or year 0000, which Postgres rejects with a 500.
+function isRealDate(s) {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.getUTCFullYear() >= 1 && d.toISOString().startsWith(s);
+}
+
+// ids are Postgres INTEGER; anything else can't exist, and a too-large value would make the query throw.
+function parseId(raw) {
+  const id = /^\d{1,10}$/.test(raw) ? Number(raw) : NaN;
+  return id >= 1 && id <= 2147483647 ? id : null;
+}
+
 const base = {
   company: z.string().trim().min(1).max(120),
   role: z.string().trim().min(1).max(120),
   status: z.enum(STATUSES),
-  applied_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD'),
+  applied_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD').refine(isRealDate, 'not a real date'),
   link: z.string().trim().url().max(500).nullable(),
   notes: z.string().max(2000).nullable(),
 };
@@ -55,8 +67,8 @@ router.post('/', validate(createSchema), async (req, res) => {
 });
 
 router.patch('/:id', validate(updateSchema), async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) return res.status(404).json({ error: 'not found' });
+  const id = parseId(req.params.id);
+  if (!id) return res.status(404).json({ error: 'not found' });
   const fields = Object.keys(req.body);
   // Field names come from the zod schema, never from raw user input.
   const sets = fields.map((f, i) => `${f} = $${i + 3}`).join(', ');
@@ -69,8 +81,8 @@ router.patch('/:id', validate(updateSchema), async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) return res.status(404).json({ error: 'not found' });
+  const id = parseId(req.params.id);
+  if (!id) return res.status(404).json({ error: 'not found' });
   const { rowCount } = await pool.query('DELETE FROM applications WHERE id = $1 AND user_id = $2', [id, req.userId]);
   if (!rowCount) return res.status(404).json({ error: 'not found' });
   res.status(204).end();

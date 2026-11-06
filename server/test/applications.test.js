@@ -56,6 +56,9 @@ test('validates input', async () => {
     { company: 'Acme', role: 'Intern', status: 'hired' },
     { company: 'Acme', role: 'Intern', link: 'not a url' },
     { company: 'Acme', role: 'Intern', applied_on: '02/11/2026' },
+    { company: 'Acme', role: 'Intern', applied_on: '2026-02-30' },
+    { company: 'Acme', role: 'Intern', applied_on: '2026-13-01' },
+    { company: 'Acme', role: 'Intern', applied_on: '0000-01-01' },
   ];
   for (const body of cases) {
     const res = await request(app).post('/api/applications').set(auth(token)).send(body);
@@ -63,6 +66,15 @@ test('validates input', async () => {
   }
   const empty = await request(app).patch('/api/applications/1').set(auth(token)).send({});
   expect(empty.status).toBe(400);
+});
+
+test('ids that cannot exist return 404, not a server error', async () => {
+  const { token } = await registerUser();
+  for (const id of ['99999999999', '0', '-1', '1.5', 'abc']) {
+    const patch = await request(app).patch(`/api/applications/${id}`).set(auth(token)).send({ company: 'X' });
+    const del = await request(app).delete(`/api/applications/${id}`).set(auth(token));
+    expect([id, patch.status, del.status]).toEqual([id, 404, 404]);
+  }
 });
 
 test('ignores unknown fields instead of writing them', async () => {
