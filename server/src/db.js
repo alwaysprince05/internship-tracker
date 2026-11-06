@@ -12,13 +12,16 @@ pool.on('error', (err) => console.error('idle database client error:', err.messa
 const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url);
 
 // Runs every migrations/NNN_*.sql file that hasn't been applied yet, in order,
-// each in its own transaction. The advisory lock stops two server instances
-// starting at the same time from running the same migration twice.
+// all in one transaction. The transaction-scoped advisory lock stops two server
+// instances from running the same migration twice, and it is released by
+// COMMIT/ROLLBACK, so it also works through a transaction-mode connection
+// pooler (a session lock could be left held on a pooled connection).
 export async function migrate() {
   const files = (await readdir(MIGRATIONS_DIR)).filter((f) => /^\d+_.*\.sql$/.test(f)).sort();
   const client = await pool.connect();
   try {
-    await client.query('SELECT pg_advisory_lock(727001)');
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(727001)');
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -29,17 +32,17 @@ export async function migrate() {
       if (done.has(file)) continue;
       const sql = await readFile(new URL(file, MIGRATIONS_DIR), 'utf8');
       try {
-        await client.query('BEGIN');
         await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file]);
-        await client.query('COMMIT');
       } catch (err) {
-        await client.query('ROLLBACK');
         throw new Error(`migration ${file} failed: ${err.message}`);
       }
+      await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file]);
     }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
   } finally {
-    await client.query('SELECT pg_advisory_unlock(727001)').catch(() => {});
     client.release();
   }
 }

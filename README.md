@@ -64,7 +64,7 @@ docker run -p 4000:4000 -e DATABASE_URL=... -e JWT_ACCESS_SECRET=... -e JWT_REFR
 
 ## Database migrations
 
-Schema changes live in `server/migrations/NNN_name.sql`. On startup the server runs every file that isn't listed in the `schema_migrations` table yet, in order, each in its own transaction. A Postgres advisory lock makes sure two instances starting together don't run the same migration twice. To change the schema, add a new numbered file; never edit one that has already run.
+Schema changes live in `server/migrations/NNN_name.sql`. On startup the server runs every file that isn't listed in the `schema_migrations` table yet, in order, all in one transaction (a failed migration leaves the database unchanged). A transaction-scoped advisory lock makes sure two instances starting together don't run the same migration twice; because COMMIT releases it, this also works behind a transaction-mode pooler such as PgBouncer. To change the schema, add a new numbered file; never edit one that has already run.
 
 ## Tests
 
