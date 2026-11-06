@@ -2,7 +2,7 @@
 
 A small full-stack app for tracking internship applications: where you applied, what stage each one is at, and how many are in each stage.
 
-**Stack:** React (Vite) · Node.js + Express · PostgreSQL · JWT auth · Jest + Supertest · Docker · GitHub Actions
+**Stack:** React (Vite) · Node.js + Express · PostgreSQL · JWT auth · Jest + Supertest · Vitest + Testing Library · Docker · GitHub Actions
 
 ## Features
 
@@ -23,7 +23,9 @@ A small full-stack app for tracking internship applications: where you applied, 
 ## Design notes
 
 - **Default dates use India time, not UTC.** Postgres `CURRENT_DATE` and JS `toISOString()` are both UTC, which made applications added after midnight IST show up as the previous day. The server uses `APP_TIMEZONE` and the client uses the local date. There is a test for this.
+- **Impossible input is a 400, not a 500.** A date like `2026-02-30` matches `YYYY-MM-DD` but Postgres rejects it, and an id like `99999999999` doesn't fit in an `INTEGER`. Both used to reach the database and come back as a 500; now they're caught before the query.
 - **One refresh at a time.** Because refresh tokens are single-use, two requests refreshing at the same moment (e.g. parallel API calls after the access token expires) would make the second one fail and log the user out. The client shares a single in-flight refresh promise.
+- **Old responses don't win.** If you switch the status filter while a request is still loading, the late response for the old filter is ignored.
 - `PATCH` only updates fields that pass the zod schema, so extra fields like `user_id` in the body are dropped, not written.
 
 ## Running locally
@@ -46,13 +48,21 @@ npm run dev                          # http://localhost:5173 (proxies /api to :4
 
 Generate a secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
 
+## Database migrations
+
+Schema changes live in `server/migrations/NNN_name.sql`. On startup the server runs every file that isn't listed in the `schema_migrations` table yet, in order, each in its own transaction. A Postgres advisory lock makes sure two instances starting together don't run the same migration twice. To change the schema, add a new numbered file; never edit one that has already run.
+
 ## Tests
 
 ```bash
-cd server && npm test
+cd server && npm test     # needs the Postgres container running
+cd client && npm test
 ```
 
-19 API tests against a real Postgres database: registration and validation, login, expired and forged tokens, refresh rotation and reuse, logout revocation, CRUD, cross-user access (another user's application returns 404), status filtering and stats. CI runs them on every push, plus lint and build for the client.
+- **Server (23 tests, Jest + Supertest, real Postgres):** registration and validation, login, expired and forged tokens, refresh rotation and reuse, expired-token cleanup, logout revocation, CRUD, cross-user access (another user's application returns 404), impossible dates and ids, status filtering and stats, migrations being safe to run twice or in parallel.
+- **Client (12 tests, Vitest + Testing Library):** parallel 401s share a single refresh, error messages from the API, the form's null handling and error display, login/sign-up, the dashboard ignoring a stale filter response and showing a failed delete.
+
+CI runs both on every push, plus lint and build for the client.
 
 ## API
 
@@ -71,5 +81,4 @@ cd server && npm test
 ## Limitations / next steps
 
 - No email verification or password reset yet.
-- Schema is created with `CREATE TABLE IF NOT EXISTS` on startup; a real migration tool would be better once the schema changes.
-- No frontend tests yet.
+- No end-to-end browser tests; the client tests mock `fetch`.
