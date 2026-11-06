@@ -31,6 +31,6 @@ test('shows the error and keeps the input when saving fails', async () => {
 test('edit mode starts from the existing values', () => {
   render(<ApplicationForm initial={{ company: 'Acme', role: 'Intern', status: 'oa', applied_on: '2026-11-01', link: null, notes: null }} onSave={vi.fn()} onCancel={vi.fn()} />);
   expect(screen.getByPlaceholderText('Company')).toHaveValue('Acme');
-  expect(screen.getByRole('combobox')).toHaveValue('oa');
+  expect(screen.getByLabelText('Status')).toHaveValue('oa');
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
 });

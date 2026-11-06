@@ -24,7 +24,66 @@ test('lists applications and shows counts', async () => {
   });
   renderDashboard();
   expect(await screen.findByText('Globex')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /^2\s*all$/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '2All' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText(/2 total · 2 in progress · 0 offers/)).toBeInTheDocument();
+});
+
+test('search narrows the list by company or role', async () => {
+  mockFetch({
+    'GET /api/applications': () => json(200, [globex, acme]),
+    'GET /api/applications/stats': () => json(200, stats),
+  });
+  renderDashboard();
+  await screen.findByText('Globex');
+  await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'swe');
+  expect(screen.getByText('Globex')).toBeInTheDocument();
+  expect(screen.queryByText('Acme')).not.toBeInTheDocument();
+  await userEvent.clear(screen.getByRole('searchbox', { name: 'Search' }));
+  await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'nothing');
+  expect(screen.getByText('Nothing matches "nothing".')).toBeInTheDocument();
+});
+
+test('changing the status in the table saves it', async () => {
+  let patched;
+  mockFetch({
+    'GET /api/applications': () => json(200, [acme]),
+    'GET /api/applications/stats': () => json(200, stats),
+    'PATCH /api/applications/1': (init) => { patched = JSON.parse(init.body); return json(200, { ...acme, ...patched }); },
+  });
+  renderDashboard();
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Status for Acme' }), 'interview');
+  expect(patched).toEqual({ status: 'interview' });
+});
+
+test('adds an application from the dialog and closes it', async () => {
+  let created;
+  mockFetch({
+    'GET /api/applications': () => json(200, []),
+    'GET /api/applications/stats': () => json(200, { ...stats, applied: 0, oa: 0 }),
+    'POST /api/applications': (init) => { created = JSON.parse(init.body); return json(201, { id: 3, ...created }); },
+  });
+  renderDashboard();
+  expect(await screen.findByText('No applications yet')).toBeInTheDocument();
+  await userEvent.click(screen.getAllByRole('button', { name: '+ Add application' })[0]);
+  const dialog = screen.getByRole('dialog', { name: 'Add application' });
+  await userEvent.type(within(dialog).getByLabelText('Company'), 'Initech');
+  await userEvent.type(within(dialog).getByLabelText('Role'), 'Backend Intern');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Add application' }));
+  expect(created).toMatchObject({ company: 'Initech', role: 'Backend Intern', status: 'applied' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+test('Escape closes the dialog', async () => {
+  mockFetch({
+    'GET /api/applications': () => json(200, [acme]),
+    'GET /api/applications/stats': () => json(200, stats),
+  });
+  renderDashboard();
+  const row = (await screen.findByText('Acme')).closest('tr');
+  await userEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+  expect(screen.getByRole('dialog', { name: 'Edit Acme' })).toBeInTheDocument();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
 test('a slow response for an old filter does not replace the current one', async () => {

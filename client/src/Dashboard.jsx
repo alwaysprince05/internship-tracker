@@ -2,15 +2,26 @@ import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import { useAuth } from './auth-context.js';
 import ApplicationForm from './ApplicationForm.jsx';
-import { STATUSES, label } from './constants.js';
+import Modal from './Modal.jsx';
+import { ACTIVE, STATUSES, label } from './constants.js';
+import { daysAgo, formatDate } from './dates.js';
+
+const SORTS = {
+  newest: (a, b) => b.applied_on.localeCompare(a.applied_on) || b.id - a.id,
+  oldest: (a, b) => a.applied_on.localeCompare(b.applied_on) || a.id - b.id,
+  company: (a, b) => a.company.localeCompare(b.company),
+};
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [apps, setApps] = useState([]);
   const [stats, setStats] = useState({});
   const [filter, setFilter] = useState('');
-  const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest');
+  const [modal, setModal] = useState(null); // null | 'new' | application being edited
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   // Bumped after every change so the list and counts are fetched again.
   const [version, setVersion] = useState(0);
   const reload = () => setVersion((v) => v + 1);
@@ -26,6 +37,7 @@ export default function Dashboard() {
         setApps(list);
         setStats(s);
         setError('');
+        setLoaded(true);
       })
       .catch((err) => { if (!stale) setError(err.message); });
     return () => { stale = true; };
@@ -33,13 +45,23 @@ export default function Dashboard() {
 
   async function create(data) {
     await api('/api/applications', { method: 'POST', body: data });
+    setModal(null);
     reload();
   }
 
   async function update(id, data) {
     await api(`/api/applications/${id}`, { method: 'PATCH', body: data });
-    setEditing(null);
+    setModal(null);
     reload();
+  }
+
+  async function changeStatus(app, status) {
+    try {
+      await api(`/api/applications/${app.id}`, { method: 'PATCH', body: { status } });
+      reload();
+    } catch (err) {
+      setError(`Could not update ${app.company}: ${err.message}`);
+    }
   }
 
   async function remove(app) {
@@ -54,45 +76,114 @@ export default function Dashboard() {
   }
 
   const total = Object.values(stats).reduce((a, b) => a + b, 0);
+  const active = ACTIVE.reduce((n, s) => n + (stats[s] ?? 0), 0);
+  const q = search.trim().toLowerCase();
+  const shown = apps
+    .filter((a) => !q || a.company.toLowerCase().includes(q) || a.role.toLowerCase().includes(q))
+    .sort(SORTS[sort]);
 
   return (
-    <main className="dashboard">
-      <header>
-        <h1>Internship Tracker</h1>
-        <span>{user.email} <button className="secondary" onClick={logout}>Log out</button></span>
+    <div className="page">
+      <header className="topbar">
+        <div className="brand"><img src="/favicon.svg" alt="" width="24" height="24" />Internship Tracker</div>
+        <div className="account">
+          <span className="email">{user.email}</span>
+          <button className="secondary small" onClick={logout}>Log out</button>
+        </div>
       </header>
 
-      <section className="stats">
-        <button className={!filter ? 'stat active' : 'stat'} onClick={() => setFilter('')}><b>{total}</b>all</button>
-        {STATUSES.map((s) => (
-          <button key={s} className={filter === s ? 'stat active' : 'stat'} onClick={() => setFilter(s)}><b>{stats[s] ?? 0}</b>{label(s)}</button>
-        ))}
-      </section>
+      <main className="dashboard">
+        <div className="page-head">
+          <div>
+            <h1>Applications</h1>
+            <p className="muted">{total} total · {active} in progress · {stats.offer ?? 0} {stats.offer === 1 ? 'offer' : 'offers'}</p>
+          </div>
+          <button onClick={() => setModal('new')}>+ Add application</button>
+        </div>
 
-      <ApplicationForm onSave={create} />
-      {error && <p className="error">{error}</p>}
-
-      <table>
-        <thead><tr><th>Company</th><th>Role</th><th>Status</th><th>Applied</th><th>Notes</th><th></th></tr></thead>
-        <tbody>
-          {apps.map((app) => editing === app.id ? (
-            <tr key={app.id}><td colSpan={6}><ApplicationForm initial={app} onSave={(d) => update(app.id, d)} onCancel={() => setEditing(null)} /></td></tr>
-          ) : (
-            <tr key={app.id}>
-              <td>{app.link ? <a href={app.link} target="_blank" rel="noreferrer">{app.company}</a> : app.company}</td>
-              <td>{app.role}</td>
-              <td><span className={`badge ${app.status}`}>{label(app.status)}</span></td>
-              <td>{app.applied_on}</td>
-              <td className="notes">{app.notes}</td>
-              <td className="row-actions">
-                <button className="secondary" onClick={() => setEditing(app.id)}>Edit</button>
-                <button className="danger" onClick={() => remove(app)}>Delete</button>
-              </td>
-            </tr>
+        <nav className="stats" aria-label="Filter by status">
+          <button className={!filter ? 'stat active' : 'stat'} aria-pressed={!filter} onClick={() => setFilter('')}>
+            <b>{total}</b><span>All</span>
+          </button>
+          {STATUSES.map((s) => (
+            <button key={s} className={`stat s-${s}${filter === s ? ' active' : ''}`} aria-pressed={filter === s} onClick={() => setFilter(s)}>
+              <b>{stats[s] ?? 0}</b><span>{label(s)}</span>
+            </button>
           ))}
-          {apps.length === 0 && <tr><td colSpan={6} className="empty">No applications yet.</td></tr>}
-        </tbody>
-      </table>
-    </main>
+        </nav>
+
+        <div className="toolbar">
+          <input type="search" placeholder="Search company or role" aria-label="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="company">Company A–Z</option>
+          </select>
+        </div>
+
+        {error && <p className="error" role="alert">{error}</p>}
+
+        {loaded && shown.length === 0 ? (
+          <div className="empty card">
+            {total === 0 ? (
+              <>
+                <h2>No applications yet</h2>
+                <p className="muted">Add the first place you applied to and track it from wishlist to offer.</p>
+                <button onClick={() => setModal('new')}>+ Add application</button>
+              </>
+            ) : (
+              <p className="muted">Nothing matches {q ? `"${search.trim()}"` : 'this filter'}.</p>
+            )}
+          </div>
+        ) : (
+          <table className="apps">
+            <thead>
+              <tr><th>Company</th><th>Status</th><th>Applied</th><th>Notes</th><th><span className="sr-only">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {shown.map((app) => (
+                <tr key={app.id}>
+                  <td data-label="Company">
+                    <div className="company">
+                      {app.link ? <a href={app.link} target="_blank" rel="noreferrer">{app.company}</a> : app.company}
+                    </div>
+                    <div className="muted">{app.role}</div>
+                  </td>
+                  <td data-label="Status">
+                    <select
+                      className={`status s-${app.status}`}
+                      aria-label={`Status for ${app.company}`}
+                      value={app.status}
+                      onChange={(e) => changeStatus(app, e.target.value)}
+                    >
+                      {STATUSES.map((s) => <option key={s} value={s}>{label(s)}</option>)}
+                    </select>
+                  </td>
+                  <td data-label="Applied">
+                    <div>{formatDate(app.applied_on)}</div>
+                    <div className="muted small-text">{daysAgo(app.applied_on)}</div>
+                  </td>
+                  <td data-label="Notes" className="notes">{app.notes}</td>
+                  <td className="row-actions">
+                    <button className="ghost small" onClick={() => setModal(app)}>Edit</button>
+                    <button className="ghost small danger" onClick={() => remove(app)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </main>
+
+      {modal && (
+        <Modal title={modal === 'new' ? 'Add application' : `Edit ${modal.company}`} onClose={() => setModal(null)}>
+          <ApplicationForm
+            initial={modal === 'new' ? undefined : modal}
+            onSave={modal === 'new' ? create : (d) => update(modal.id, d)}
+            onCancel={() => setModal(null)}
+          />
+        </Modal>
+      )}
+    </div>
   );
 }
