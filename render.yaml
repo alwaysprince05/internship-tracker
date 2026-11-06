@@ -1,0 +1,19 @@
+# Render Blueprint: one web service built from the root Dockerfile.
+# DATABASE_URL is entered in the Render dashboard (sync: false), never committed.
+services:
+  - type: web
+    name: internship-tracker
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
